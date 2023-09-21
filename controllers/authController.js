@@ -2,7 +2,7 @@ const jwt = require("jsonwebtoken");
 const otpGenerator = require("otp-generator");
 const mailService = require("../services/mailer");
 const crypto = require("crypto");
-const bcrypt = require("bcryptjs");
+
 const filterObj = require("../utils/filterObj");
 
 // Model
@@ -10,14 +10,16 @@ const User = require("../models/user");
 const otp = require("../Templates/Mail/otp");
 const resetPassword = require("../Templates/Mail/resetPassword");
 const { promisify } = require("util");
-// const catchAsync = require("../utils/catchAsync");
+const catchAsync = require("../utils/catchAsync");
 
 // this function will return you jwt token
 const signToken = (userId) => jwt.sign({ userId }, process.env.JWT_SECRET);
 
 // Register New User
 
-exports.register = async (req, res, next) => {
+
+
+exports.register = catchAsync(async (req, res, next) => {
   const { firstName, lastName, email, password } = req.body;
 
   const filteredBody = filterObj(
@@ -28,35 +30,38 @@ exports.register = async (req, res, next) => {
     "password"
   );
 
-// check if a verified user with given email exists
+  // check if a verified user with given email exists
 
   const existing_user = await User.findOne({ email: email });
 
   if (existing_user && existing_user.verified) {
+    // user with this email already exists, Please login
     return res.status(400).json({
       status: "error",
       message: "Email already in use, Please login.",
     });
   } else if (existing_user) {
+    // if not verified than update prev one
 
     await User.findOneAndUpdate({ email: email }, filteredBody, {
       new: true,
       validateModifiedOnly: true,
     });
 
+    // generate an otp and send to email
     req.userId = existing_user._id;
     next();
   } else {
-    //  if user is not created before than create a new one
+    // if user is not created before than create a new one
     const new_user = await User.create(filteredBody);
 
     // generate an otp and send to email
     req.userId = new_user._id;
     next();
   }
-};
+});
 
-exports.sendOTP = async (req, res, next) => {
+exports.sendOTP = catchAsync(async (req, res, next) => {
   const { userId } = req;
   const new_otp = otpGenerator.generate(6, {
     upperCaseAlphabets: false,
@@ -67,7 +72,7 @@ exports.sendOTP = async (req, res, next) => {
   const otp_expiry_time = Date.now() + 10 * 60 * 1000; // 10 Mins after otp is sent
 
   const user = await User.findByIdAndUpdate(userId, {
-    otp: new_otp, otp_expiry_time,
+    otp_expiry_time: otp_expiry_time,
   });
 
   user.otp = new_otp.toString();
@@ -76,9 +81,9 @@ exports.sendOTP = async (req, res, next) => {
 
   console.log(new_otp);
 
-  // TODO => send mail
+  // TODO send mail
   mailService.sendEmail({
-    from:"adeebansari120@gmail.com",
+    from: "adeebansari120@gmail.com",
     to: user.email,
     subject: "Verification OTP",
     html: otp(user.firstName, new_otp),
@@ -89,9 +94,9 @@ exports.sendOTP = async (req, res, next) => {
     status: "success",
     message: "OTP Sent Successfully!",
   });
-};
+});
 
-exports.verifyOTP = async (req, res, next) => {
+exports.verifyOTP = catchAsync(async (req, res, next) => {
   // verify otp and update user accordingly
   const { email, otp } = req.body;
   const user = await User.findOne({
@@ -118,6 +123,7 @@ exports.verifyOTP = async (req, res, next) => {
       status: "error",
       message: "OTP is incorrect",
     });
+
     return;
   }
 
@@ -135,10 +141,10 @@ exports.verifyOTP = async (req, res, next) => {
     token,
     user_id: user._id,
   });
-};
+});
 
 // User Login
-exports.login = async (req, res, next) => {
+exports.login = catchAsync(async (req, res, next) => {
   const { email, password } = req.body;
 
   // console.log(email, password);
@@ -156,7 +162,7 @@ exports.login = async (req, res, next) => {
   if (!user || !user.password) {
     res.status(400).json({
       status: "error",
-      message: "Oops!.. No User found, Please Register to login",
+      message: "Incorrect password",
     });
 
     return;
@@ -179,10 +185,10 @@ exports.login = async (req, res, next) => {
     token,
     user_id: user._id,
   });
-};
+});
 
 // Protect
-exports.protect = async (req, res, next) => {
+exports.protect = catchAsync(async (req, res, next) => {
   // 1) Getting token and check if it's there
   let token;
   if (
@@ -196,7 +202,6 @@ exports.protect = async (req, res, next) => {
 
   if (!token) {
     return res.status(401).json({
-      status: "error",
       message: "You are not logged in! Please log in to get access.",
     });
   }
@@ -216,7 +221,6 @@ exports.protect = async (req, res, next) => {
   // 4) Check if user changed password after the token was issued
   if (this_user.changedPasswordAfter(decoded.iat)) {
     return res.status(401).json({
-      status: "error",
       message: "User recently changed password! Please log in again.",
     });
   }
@@ -224,9 +228,9 @@ exports.protect = async (req, res, next) => {
   // GRANT ACCESS TO PROTECTED ROUTE
   req.user = this_user;
   next();
-};
+});
 
-exports.forgotPassword = async (req, res, next) => {
+exports.forgotPassword = catchAsync(async (req, res, next) => {
   // 1) Get user based on POSTed email
   const user = await User.findOne({ email: req.body.email });
   if (!user) {
@@ -240,11 +244,9 @@ exports.forgotPassword = async (req, res, next) => {
   const resetToken = user.createPasswordResetToken();
   await user.save({ validateBeforeSave: false });
 
-  const resetURL = `http://localhost:3000/auth/new-password?token=${resetToken}`;
-
   // 3) Send it to user's email
   try {
-   
+    const resetURL = `http://localhost:3000/auth/new-password?token=${resetToken}`;
     // TODO => Send Email with this Reset URL to user's email address
 
     console.log(resetURL);
@@ -259,7 +261,7 @@ exports.forgotPassword = async (req, res, next) => {
 
     res.status(200).json({
       status: "success",
-      message: "reset Password link sent to email!",
+      message: "Token sent to email!",
     });
   } catch (err) {
     user.passwordResetToken = undefined;
@@ -270,9 +272,9 @@ exports.forgotPassword = async (req, res, next) => {
       message: "There was an error sending the email. Try again later!",
     });
   }
-};
+});
 
-exports.resetPassword = async (req, res, next) => {
+exports.resetPassword = catchAsync(async (req, res, next) => {
   // 1) Get user based on the token
   const hashedToken = crypto
     .createHash("sha256")
@@ -285,7 +287,7 @@ exports.resetPassword = async (req, res, next) => {
   });
 
   // 2) If token has not expired, and there is user, set the new password
-  if (!user){
+  if (!user) {
     return res.status(400).json({
       status: "error",
       message: "Token is Invalid or Expired",
@@ -303,7 +305,7 @@ exports.resetPassword = async (req, res, next) => {
 
   res.status(200).json({
     status: "success",
-    message: "Password Reset Successfully",
+    message: "Password Reseted Successfully",
     token,
   });
-};
+});

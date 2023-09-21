@@ -1,4 +1,4 @@
-const AudioCall = require("../models/AudioCall");
+const AudioCall = require("../models/audioCall");
 const FriendRequest = require("../models/friendRequest");
 const User = require("../models/user");
 const VideoCall = require("../models/videoCall");
